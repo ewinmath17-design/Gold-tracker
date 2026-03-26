@@ -15,30 +15,41 @@ st.divider()
 # ==========================================
 # 2. FUNGSI PENGAMBILAN DATA (DATA FEEDER)
 # ==========================================
-@st.cache_data(ttl=300) # Cache data selama 5 menit agar aplikasi tidak berat
+@st.cache_data(ttl=300) 
 def get_gold_data():
-    # Mengambil data Gold (XAU/USD) dari Yahoo Finance
-    ticker = "XAUUSD=X"
-    data = yf.download(ticker, period="1mo", interval="1d", progress=False)
+    # Menggunakan GC=F (Gold Futures) yang seringkali lebih stabil di YF, atau XAUUSD=X
+    ticker = "GC=F" 
+    # Perpanjang periode ke 3 bulan agar sisa data setelah perhitungan ATR tetap banyak
+    data = yf.download(ticker, period="3mo", interval="1d", progress=False)
     
-    # Menghitung Fast EMA (misal periode 9) dan Slow EMA (misal periode 21)
+    if data.empty:
+        raise ValueError("Yahoo Finance sedang tidak merespon. Silakan muat ulang (refresh) halaman.")
+        
+    # Menghitung Fast EMA (9) dan Slow EMA (21)
     data['EMA_Fast'] = data['Close'].ewm(span=9, adjust=False).mean()
     data['EMA_Slow'] = data['Close'].ewm(span=21, adjust=False).mean()
     
-    # Menghitung ATR (Average True Range) 14 Hari secara manual
+    # Menghitung ATR (Average True Range) 14 Hari
     data['High-Low'] = data['High'] - data['Low']
     data['High-PrevClose'] = abs(data['High'] - data['Close'].shift(1))
     data['Low-PrevClose'] = abs(data['Low'] - data['Close'].shift(1))
     data['TrueRange'] = data[['High-Low', 'High-PrevClose', 'Low-PrevClose']].max(axis=1)
     data['ATR_14'] = data['TrueRange'].rolling(window=14).mean()
     
-    return data.dropna()
+    # Buang data awal yang kosong akibat perhitungan indikator
+    clean_data = data.dropna()
+    
+    if clean_data.empty:
+        raise ValueError("Data tidak cukup untuk kalkulasi indikator.")
+        
+    return clean_data
 
-# Ambil data
+# Ambil data dengan sistem pengaman
 try:
     df = get_gold_data()
-    latest_price = float(df['Close'].iloc[-1])
-    latest_atr = float(df['ATR_14'].iloc[-1])
+    # Pastikan data berbentuk skalar tunggal
+    latest_price = float(df['Close'].iloc[-1].iloc[0] if isinstance(df['Close'].iloc[-1], pd.Series) else df['Close'].iloc[-1])
+    latest_atr = float(df['ATR_14'].iloc[-1].iloc[0] if isinstance(df['ATR_14'].iloc[-1], pd.Series) else df['ATR_14'].iloc[-1])
 except Exception as e:
     st.error(f"Gagal mengambil data market: {e}")
     st.stop()
