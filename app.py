@@ -17,13 +17,12 @@ st.divider()
 # ==========================================
 @st.cache_data(ttl=300) 
 def get_gold_data():
-    # Menggunakan GC=F (Gold Futures) yang seringkali lebih stabil di YF, atau XAUUSD=X
-    ticker = "GC=F" 
-    # Perpanjang periode ke 3 bulan agar sisa data setelah perhitungan ATR tetap banyak
-    data = yf.download(ticker, period="3mo", interval="1d", progress=False)
+    # Menggunakan yf.Ticker().history() untuk menghindari masalah MultiIndex pada yfinance terbaru
+    ticker = yf.Ticker("GC=F") 
+    data = ticker.history(period="3mo")
     
     if data.empty:
-        raise ValueError("Yahoo Finance sedang tidak merespon. Silakan muat ulang (refresh) halaman.")
+        raise ValueError("Yahoo Finance tidak merespon. Silakan muat ulang (refresh) halaman.")
         
     # Menghitung Fast EMA (9) dan Slow EMA (21)
     data['EMA_Fast'] = data['Close'].ewm(span=9, adjust=False).mean()
@@ -36,20 +35,14 @@ def get_gold_data():
     data['TrueRange'] = data[['High-Low', 'High-PrevClose', 'Low-PrevClose']].max(axis=1)
     data['ATR_14'] = data['TrueRange'].rolling(window=14).mean()
     
-    # Buang data awal yang kosong akibat perhitungan indikator
     clean_data = data.dropna()
-    
-    if clean_data.empty:
-        raise ValueError("Data tidak cukup untuk kalkulasi indikator.")
-        
     return clean_data
 
-# Ambil data dengan sistem pengaman
+# Ambil data
 try:
     df = get_gold_data()
-    # Pastikan data berbentuk skalar tunggal
-    latest_price = float(df['Close'].iloc[-1].iloc[0] if isinstance(df['Close'].iloc[-1], pd.Series) else df['Close'].iloc[-1])
-    latest_atr = float(df['ATR_14'].iloc[-1].iloc[0] if isinstance(df['ATR_14'].iloc[-1], pd.Series) else df['ATR_14'].iloc[-1])
+    latest_price = float(df['Close'].iloc[-1])
+    latest_atr = float(df['ATR_14'].iloc[-1])
 except Exception as e:
     st.error(f"Gagal mengambil data market: {e}")
     st.stop()
@@ -63,7 +56,6 @@ col1, col2, col3 = st.columns(3)
 col1.metric("Harga XAUUSD Saat Ini", f"${latest_price:,.2f}")
 col2.metric("Volatilitas Harian (ATR 14)", f"${latest_atr:,.2f} / ~{int(latest_atr*10)} Pips")
 
-# Logika Deteksi Cross
 fast_ema = df['EMA_Fast'].iloc[-1]
 slow_ema = df['EMA_Slow'].iloc[-1]
 
@@ -85,8 +77,6 @@ st.divider()
 # 4. FITUR B: DYNAMIC LOT CALCULATOR
 # ==========================================
 st.header("🛡️ 2. Pertahanan Baja (Dynamic Lot Calculator)")
-st.markdown("Hitung ukuran lot aman Anda berdasarkan jarak Stop Loss di Zona Reaksi.")
-
 calc_col1, calc_col2 = st.columns(2)
 
 with calc_col1:
@@ -95,12 +85,8 @@ with calc_col1:
 
 with calc_col2:
     sl_pips = st.number_input("Jarak Stop Loss (Pips):", min_value=10, value=40, step=5)
-    
-    # Perhitungan: (Ekuitas * (Risiko/100)) / (SL_Pips * Nilai 1 Pip Gold (standar $0.1 per mikro lot / $10 per standar lot))
-    # Asumsi 1 Lot XAUUSD = 100 oz. Pergerakan 1 pip (0.1) = $1.
     risk_amount = equity * (risk_percent / 100)
-    lot_size = risk_amount / (sl_pips * 10) # Asumsi $10 per pip untuk 1 Standard Lot XAUUSD
-
+    lot_size = risk_amount / (sl_pips * 10) 
     st.info(f"**Uang yang dirisikokan:** ${risk_amount:.2f}")
     st.success(f"🔥 **Ukuran Lot Aman Anda:** {lot_size:.3f} Lot")
 
@@ -110,9 +96,7 @@ st.divider()
 # 5. FITUR C: TIME TRADING CALENDAR
 # ==========================================
 st.header("⏳ 3. Time Trading Cycle (Tanggal Konjungsi)")
-st.markdown("Algoritma penanda waktu potensial terjadinya *Massive Reversal* bulan ini.")
 
-# Simulasi Database Tanggal Siklus (Bisa diganti dengan data kalender aktual)
 today = datetime.now()
 mock_cycle_dates = [
     {"Tanggal": (today + timedelta(days=2)).strftime("%Y-%m-%d"), "Event": "Major Lunar Phase / Reversal Zone", "Status": "Upcoming"},
@@ -121,12 +105,9 @@ mock_cycle_dates = [
 ]
 
 cycle_df = pd.DataFrame(mock_cycle_dates)
-
-# Cek apakah hari ini ada momen reversal
 today_str = today.strftime("%Y-%m-%d")
 if today_str in cycle_df['Tanggal'].values:
     st.warning("⚠️ **PERHATIAN: HARI INI ADALAH TANGGAL REVERSAL TINGGI. Disiplin di area Kill Zone!**")
 
 st.table(cycle_df)
-
 st.caption("© 2026 Gold Code-X Masterclass | Dirancang khusus untuk trader Indonesia.")
